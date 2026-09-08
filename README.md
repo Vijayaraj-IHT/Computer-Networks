@@ -1,4 +1,4 @@
-<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:2b5876,50:2f6f9f,100:4e9acb&height=190&section=header&text=Computer%20Networks%20Lab&fontSize=50&fontColor=ffffff&animation=fadeIn&desc=Framing%20%E2%80%A2%20Error%20Control%20%E2%80%A2%20Routing%20%E2%80%A2%20Sockets&descSize=18&descAlignY=60"/>
+<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:2b5876,50:2f6f9f,100:4e9acb&height=190&section=header&text=Computer%20Networks%20Lab&fontSize=50&fontColor=ffffff&animation=fadeIn&desc=Framing%20%E2%80%A2%20Error%20Control%20%E2%80%A2%20Routing%20%E2%80%A2%20TCP%2FUDP%20Servers&descSize=18&descAlignY=60"/>
 
 <div align="center">
 
@@ -35,17 +35,23 @@ Layered network-architecture demo (`layering.c`).
 **2️⃣ `ex2` — Error Detection**
 Internet **checksum** sender & receiver.
 
-</td>
-<td width="50%" valign="top">
-
 **3️⃣ `ex3` — Error Correction**
 **Hamming (7,4)** encode/decode — sender & receiver.
+
+</td>
+<td width="50%" valign="top">
 
 **4️⃣ `ex4` — Routing**
 **Bellman–Ford** distance-vector routing (+ VLab snapshots).
 
 **5️⃣ `ex5` — Socket Programming**
 Multi-client **TCP client–server** chat (`server1–3.c`, `client1–3.c`).
+
+**6️⃣ `ex6` — UDP Socket Programming**
+UDP **chat**, **DNS resolver** (hash table) & **DHCP-style** subnet/IP allocator.
+
+**7️⃣ `ex7` — Concurrent TCP Servers**
+Multi-client chat (`fork`), **ARP simulation** (threads) & **file transfer** with checksum.
 
 </td>
 </tr>
@@ -65,6 +71,12 @@ Multi-client **TCP client–server** chat (`server1–3.c`, `client1–3.c`).
 <img src="https://img.shields.io/badge/Hamming%20Code-00599C?style=flat-square"/>
 <img src="https://img.shields.io/badge/Bellman--Ford-00599C?style=flat-square"/>
 <img src="https://img.shields.io/badge/TCP%20Sockets-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/UDP%20Sockets-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/DNS-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/DHCP-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/ARP-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/File%20Transfer-00599C?style=flat-square"/>
+<img src="https://img.shields.io/badge/Fork%20%26%20Threads-00599C?style=flat-square"/>
 </p>
 
 ---
@@ -88,6 +100,27 @@ gcc program.c -o program
 gcc server1.c -o server && ./server
 # Terminals 2..n — connect clients
 gcc client1.c -o client && ./client
+```
+</details>
+
+<details>
+<summary><b>▶️ Run a UDP service (ex6)</b></summary>
+
+```bash
+# Terminal 1 — start a server (chat / DNS / DHCP)
+gcc ser_dns.c -o ser_dns && ./ser_dns 5353
+# Terminal 2 — connect a client
+gcc cli_dns.c -o cli_dns && ./cli_dns 127.0.0.1 5353
+```
+</details>
+
+<details>
+<summary><b>▶️ Run a concurrent TCP server (ex7)</b></summary>
+
+```bash
+# ARP server needs pthreads
+gcc ser_arp.c -o ser_arp -lpthread && ./ser_arp 8081
+gcc cli_arp.c -o cli_arp && ./cli_arp 127.0.0.1 8081
 ```
 </details>
 

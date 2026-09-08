@@ -1,0 +1,8 @@
+# Compiled binaries & object files
+a.out
+*.out
+*.o
+*.exe
+
+# Core dumps
+core
