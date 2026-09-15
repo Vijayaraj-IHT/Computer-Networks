@@ -1,0 +1,463 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+
+#define BUF 4096
+#define MAXSUB 256
+#define MAXHOST 65534
+#define TSZ 10
+
+typedef struct
+{
+    uint32_t nw;
+    uint32_t fh;
+    uint32_t lh;
+    uint32_t bc;
+    int th;
+    int alc;
+    int usd[MAXHOST];
+} Sub;
+
+typedef struct Nd
+{
+    char dm[100];
+    char ip[50];
+    struct Nd *nxt;
+} Nd;
+
+Nd *tbl[TSZ];
+
+Sub sub[MAXSUB];
+
+int hf(char *dm)
+{
+    int h = 0;
+
+    for (int i = 0; dm[i] != '\0'; i++)
+        h = (h + dm[i]) % TSZ;
+
+    return h;
+}
+
+void ins(char *dm, char *ip)
+{
+    int idx = hf(dm);
+
+    Nd *nn = (Nd *)malloc(sizeof(Nd));
+
+    if (nn == NULL)
+    {
+        perror("Memory allocation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    strcpy(nn->dm, dm);
+    strcpy(nn->ip, ip);
+
+    nn->nxt = tbl[idx];
+    tbl[idx] = nn;
+}
+
+char *srch(char *dm)
+{
+    int idx = hf(dm);
+
+    Nd *cur = tbl[idx];
+
+    while (cur != NULL)
+    {
+        if (strcmp(cur->dm, dm) == 0)
+            return cur->ip;
+
+        cur = cur->nxt;
+    }
+
+    return NULL;
+}
+
+uint32_t ip2i(char *ip)
+{
+    unsigned int a, b, c, d;
+
+    if (sscanf(ip, "%u.%u.%u.%u",
+               &a, &b, &c, &d) != 4)
+        return 0;
+
+    return ((uint32_t)a << 24) |
+           ((uint32_t)b << 16) |
+           ((uint32_t)c << 8) |
+           (uint32_t)d;
+}
+
+void i2ip(uint32_t ip, char *str)
+{
+    sprintf(str, "%u.%u.%u.%u",
+            (ip >> 24) & 255,
+            (ip >> 16) & 255,
+            (ip >> 8) & 255,
+            ip & 255);
+}
+
+int pw2(int x)
+{
+    int r = 1;
+
+    for (int i = 0; i < x; i++)
+        r = r * 2;
+
+    return r;
+}
+
+int fbit(int sc)
+{
+    int x = 0;
+
+    while (pw2(x) < sc)
+        x++;
+
+    return x;
+}
+
+int main(int argc, char *argv[])
+{
+    int fd;
+    int p;
+
+    struct sockaddr_in sa;
+    struct sockaddr_in ca;
+
+    char buf[BUF];
+    char res[BUF];
+
+    int sc = 0;
+    int pfx = 24;
+    int npfx = 0;
+    int hb = 0;
+
+    for (int i = 0; i < TSZ; i++)
+        tbl[i] = NULL;
+
+    ins("google.com", "142.250.195.14");
+    ins("youtube.com", "142.250.72.206");
+    ins("facebook.com", "157.240.241.35");
+    ins("example.com", "93.184.216.34");
+    ins("amazon.com", "98.137.11.163");
+    ins("github.com", "140.82.114.4");
+    ins("wikipedia.org", "208.80.154.224");
+    ins("instagram.com", "157.240.241.174");
+    ins("microsoft.com", "20.112.250.133");
+    ins("apple.com", "17.253.144.10");
+
+    if (argc != 2)
+    {
+        printf("Usage: %s <port>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    p = atoi(argv[1]);
+
+    if (p <= 0 || p > 65535)
+    {
+        printf("Invalid port number\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+
+    if (fd < 0)
+    {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    memset(&sa, 0, sizeof(sa));
+
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((uint16_t)p);
+    sa.sin_addr.s_addr = INADDR_ANY;
+
+    if (bind(fd, (struct sockaddr *)&sa, sizeof(sa)) < 0)
+    {
+        perror("Bind failed");
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("DHCP UDP Server started on port %d\n", p);
+    printf("Domain based IP allocation enabled.\n");
+    printf("Server is ready for clients.\n\n");
+
+    while (1)
+    {
+        socklen_t al = sizeof(ca);
+
+        ssize_t n = recvfrom(fd, buf, BUF - 1, 0,
+                             (struct sockaddr *)&ca, &al);
+
+        if (n < 0)
+        {
+            perror("recvfrom failed");
+            continue;
+        }
+
+        buf[n] = '\0';
+
+        if (strncmp(buf, "SETUP", 5) == 0)
+        {
+            char dm[100];
+            int rs;
+
+            if (sscanf(buf, "SETUP %99s %d", dm, &rs) != 2)
+            {
+                strcpy(res, "Invalid SETUP format.");
+
+                sendto(fd, res, strlen(res), 0,
+                       (struct sockaddr *)&ca, al);
+
+                continue;
+            }
+
+            if (rs <= 0 || rs > MAXSUB)
+            {
+                strcpy(res, "Invalid number of subnets.");
+
+                sendto(fd, res, strlen(res), 0,
+                       (struct sockaddr *)&ca, al);
+
+                continue;
+            }
+
+            char *ip = srch(dm);
+
+            if (ip == NULL)
+            {
+                snprintf(res, BUF,
+                         "Domain not found: %s",
+                         dm);
+
+                sendto(fd, res, strlen(res), 0,
+                       (struct sockaddr *)&ca, al);
+
+                continue;
+            }
+
+            uint32_t host_ip = ip2i(ip);
+
+            uint32_t mask = 0xFFFFFF00;
+
+            uint32_t bip = host_ip & mask;
+
+            sc = rs;
+
+            int bb = fbit(sc);
+
+            npfx = pfx + bb;
+
+            if (npfx > 30)
+            {
+                strcpy(res,
+                       "Too many subnets for the /24 network.");
+
+                sendto(fd, res, strlen(res), 0,
+                       (struct sockaddr *)&ca, al);
+
+                continue;
+            }
+
+            hb = 32 - npfx;
+
+            uint32_t aps = pw2(hb);
+
+            printf("Client [%s:%d]\n",
+                   inet_ntoa(ca.sin_addr),
+                   ntohs(ca.sin_port));
+
+            printf("Domain Name: %s\n", dm);
+            printf("Resolved IP: %s\n", ip);
+            printf("Network Block: ");
+
+            char baseip[30];
+
+            i2ip(bip, baseip);
+
+            printf("%s/%d\n", baseip, pfx);
+            printf("Required Subnets: %d\n", sc);
+            printf("Borrowed Bits: %d\n", bb);
+            printf("New Prefix: /%d\n\n", npfx);
+
+            for (int i = 0; i < sc; i++)
+            {
+                sub[i].nw = bip + (i * aps);
+                sub[i].bc = sub[i].nw + aps - 1;
+                sub[i].fh = sub[i].nw + 1;
+                sub[i].lh = sub[i].bc - 1;
+                sub[i].th = aps - 2;
+                sub[i].alc = 0;
+
+                for (int j = 0; j < sub[i].th; j++)
+                    sub[i].usd[j] = 0;
+            }
+
+            strcpy(res, "DHCP Subnet Calculation:\n\n");
+
+            char tmp[400];
+
+            snprintf(tmp, sizeof(tmp),
+                     "Domain: %s\n"
+                     "Resolved IP: %s\n"
+                     "Network Block: %s/%d\n"
+                     "Required Subnets: %d\n"
+                     "New Prefix: /%d\n\n",
+                     dm,
+                     ip,
+                     baseip,
+                     pfx,
+                     sc,
+                     npfx);
+
+            strcat(res, tmp);
+
+            for (int i = 0; i < sc; i++)
+            {
+                char ntw[30];
+                char fst[30];
+                char lst[30];
+                char bcst[30];
+
+                i2ip(sub[i].nw, ntw);
+                i2ip(sub[i].fh, fst);
+                i2ip(sub[i].lh, lst);
+                i2ip(sub[i].bc, bcst);
+
+                sprintf(tmp,
+                        "Subnet %d: %s/%d\n"
+                        "Network: %s\n"
+                        "First Host: %s\n"
+                        "Last Host: %s\n"
+                        "Broadcast: %s\n"
+                        "Usable Hosts: %d\n\n",
+                        i + 1,
+                        ntw,
+                        npfx,
+                        ntw,
+                        fst,
+                        lst,
+                        bcst,
+                        sub[i].th);
+
+                if (strlen(res) + strlen(tmp) < BUF)
+                    strcat(res, tmp);
+                else
+                {
+                    strcat(res,
+                           "\nResponse too large to display completely.\n");
+                    break;
+                }
+            }
+
+            printf("%s", res);
+
+            sendto(fd, res, strlen(res), 0,
+                   (struct sockaddr *)&ca, al);
+        }
+        else if (strncmp(buf, "ALLOCATE", 8) == 0)
+        {
+            int sn;
+            int req;
+
+            if (sscanf(buf, "ALLOCATE %d %d",
+                       &sn, &req) != 2)
+            {
+                strcpy(res, "Invalid ALLOCATE format.");
+
+                sendto(fd, res, strlen(res), 0,
+                       (struct sockaddr *)&ca, al);
+
+                continue;
+            }
+
+            printf("Allocation request:\n");
+            printf("Subnet: %d\n", sn);
+            printf("Required IPs: %d\n", req);
+
+            if (sn < 1 || sn > sc)
+            {
+                strcpy(res, "Invalid subnet number.");
+            }
+            else if (req <= 0)
+            {
+                strcpy(res,
+                       "Invalid number of IP addresses.");
+            }
+            else if (req > sub[sn - 1].th -
+                             sub[sn - 1].alc)
+            {
+                strcpy(res,
+                       "Subnet is full or not enough IP addresses are available.");
+            }
+            else
+            {
+                Sub *sp = &sub[sn - 1];
+
+                strcpy(res,
+                       "IP addresses allotted successfully:\n");
+
+                int an = 0;
+
+                for (int i = 0;
+                     i < sp->th && an < req;
+                     i++)
+                {
+                    if (sp->usd[i] == 0)
+                    {
+                        uint32_t ip = sp->fh + i;
+
+                        char ips[30];
+
+                        i2ip(ip, ips);
+
+                        sp->usd[i] = 1;
+                        sp->alc++;
+
+                        char tmp[50];
+
+                        sprintf(tmp, "%s\n", ips);
+
+                        strcat(res, tmp);
+
+                        an++;
+                    }
+                }
+            }
+
+            printf("%s\n\n", res);
+
+            sendto(fd, res, strlen(res), 0,
+                   (struct sockaddr *)&ca, al);
+        }
+        else if (strcmp(buf, "EXIT") == 0)
+        {
+            strcpy(res, "DHCP client disconnected.");
+
+            sendto(fd, res, strlen(res), 0,
+                   (struct sockaddr *)&ca, al);
+
+            printf("Client disconnected.\n\n");
+        }
+        else
+        {
+            strcpy(res, "Invalid request.");
+
+            sendto(fd, res, strlen(res), 0,
+                   (struct sockaddr *)&ca, al);
+        }
+    }
+
+    close(fd);
+
+    return 0;
+}
+
